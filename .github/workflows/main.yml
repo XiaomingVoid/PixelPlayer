@@ -1,19 +1,22 @@
-name: Build PixelPlayer APK
+name: Build and Publish Release
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
+    tags:
+      - 'v*' # 当你推送以 v 开头的标签（如 v1.0, v2.1.3）时触发构建
+  workflow_dispatch: # 同时也保留手动触发按钮
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 赋予创建 Release 的权限
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # 获取完整历史以便生成更新日志
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
@@ -25,13 +28,22 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build Debug APK
-      # 通过参数强制对齐 JVM 目标版本，防止编译冲突
-      run: ./gradlew assembleDebug -Dorg.gradle.java.home=$JAVA_HOME
+    - name: Build Release APK
+      # 使用 assembleRelease 构建正式版本（即使没签名也可以先发布测试）
+      run: ./gradlew assembleRelease -Dorg.gradle.java.home=$JAVA_HOME
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+    - name: Rename APK for clarity
+      run: |
+        mv app/build/outputs/apk/release/app-release-unsigned.apk PixelPlayer-${{ github.ref_name }}.apk
+        # 注意：如果你的项目有签名配置，文件名可能是 app-release.apk，请根据实际报错调整此行
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
       with:
-        name: PixelPlayer-Debug-APK
-        path: app/build/outputs/apk/debug/*.apk
-        retention-days: 5
+        files: PixelPlayer-*.apk
+        generate_release_notes: true # 自动根据提交记录生成更新日志
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
