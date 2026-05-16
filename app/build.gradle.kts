@@ -141,12 +141,8 @@ composeCompiler {
     // Applies Compose's strong skipping optimization (skip composables whose parameters
     // haven't changed) in Debug builds as well, making dev-mode performance more
     // representative of Release and reducing unnecessary recompositions during development.
-    enableStrongSkippingMode = true
-
-    // Reduces generated code for non-skippable composables, improving runtime
-    // performance by eliminating unnecessary group bookkeeping.
     featureFlags = setOf(
-        org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag.OptimizeNonSkippingGroups
+        org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag.StrongSkipping
     )
 }
 
@@ -234,6 +230,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.exoplayer.ffmpeg)
+    implementation(libs.androidx.media3.exoplayer.midi)
     implementation(libs.androidx.media3.transformer)
     implementation(libs.androidx.mediarouter)
     implementation(libs.androidx.media)

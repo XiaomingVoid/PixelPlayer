@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -57,6 +58,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -82,7 +86,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -93,6 +96,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -113,6 +117,7 @@ import androidx.compose.ui.res.stringResource
 @AndroidEntryPoint
 class TelegramLoginActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             PixelPlayTheme {
@@ -189,11 +194,6 @@ fun TelegramLoginScreen(
         }
     }
 
-    val gradientColors = listOf(
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-        MaterialTheme.colorScheme.surface
-    )
-
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -234,7 +234,7 @@ fun TelegramLoginScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(gradientColors))
+                .background(MaterialTheme.colorScheme.surface)
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 20.dp),
@@ -876,16 +876,37 @@ fun ExpressivePasswordInput(
     onCheck: () -> Unit,
     onEditPhone: () -> Unit
 ) {
-    val inputShape = AbsoluteSmoothCornerShape(
-        cornerRadiusTR = 16.dp,
-        cornerRadiusTL = 16.dp,
-        cornerRadiusBR = 16.dp,
-        cornerRadiusBL = 16.dp,
-        smoothnessAsPercentTR = 60,
-        smoothnessAsPercentTL = 60,
-        smoothnessAsPercentBR = 60,
-        smoothnessAsPercentBL = 60
-    )
+    // Local state so keystrokes don't push through the VM uiState on every char,
+    // which would recompose the whole login screen and cause input jank.
+    var localPassword by remember { mutableStateOf(password) }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    // Re-sync from VM only when it actively resets the password (e.g. auth state change).
+    LaunchedEffect(password) {
+        if (password.isEmpty() && localPassword.isNotEmpty()) {
+            localPassword = ""
+        }
+    }
+
+    val inputShape = remember {
+        AbsoluteSmoothCornerShape(
+            cornerRadiusTR = 16.dp,
+            cornerRadiusTL = 16.dp,
+            cornerRadiusBR = 16.dp,
+            cornerRadiusBL = 16.dp,
+            smoothnessAsPercentTR = 60,
+            smoothnessAsPercentTL = 60,
+            smoothnessAsPercentBR = 60,
+            smoothnessAsPercentBL = 60
+        )
+    }
+
+    val submitPassword = {
+        if (!isLoading && localPassword.isNotBlank()) {
+            onPasswordChanged(localPassword)
+            onCheck()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -900,8 +921,8 @@ fun ExpressivePasswordInput(
         Spacer(Modifier.height(24.dp))
 
         OutlinedTextField(
-            value = password,
-            onValueChange = onPasswordChanged,
+            value = localPassword,
+            onValueChange = { localPassword = it },
             label = { Text(stringResource(R.string.presentation_batch_f_password_label), fontFamily = GoogleSansRounded) },
             leadingIcon = {
                 Icon(
@@ -910,14 +931,20 @@ fun ExpressivePasswordInput(
                     tint = MaterialTheme.colorScheme.primary
                 )
             },
-            visualTransformation = PasswordVisualTransformation(),
+            trailingIcon = {
+                val image = if (passwordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff
+                val description = if (passwordVisible) "Hide password" else "Show password"
+
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(imageVector = image, contentDescription = description, tint = MaterialTheme.colorScheme.primary)
+                }
+            },
+            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done
             ),
-            keyboardActions = KeyboardActions(onDone = {
-                if (!isLoading) onCheck()
-            }),
+            keyboardActions = KeyboardActions(onDone = { submitPassword() }),
             singleLine = true,
             enabled = !isLoading,
             modifier = Modifier.fillMaxWidth(),
@@ -945,8 +972,8 @@ fun ExpressivePasswordInput(
 
         ExpressiveButton(
             text = stringResource(R.string.presentation_batch_f_verify_password),
-            onClick = onCheck,
-            enabled = password.isNotBlank() && !isLoading,
+            onClick = submitPassword,
+            enabled = localPassword.isNotBlank() && !isLoading,
             loading = isLoading
         )
     }

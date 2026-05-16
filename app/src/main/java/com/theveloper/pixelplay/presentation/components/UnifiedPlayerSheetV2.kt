@@ -58,6 +58,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.preferences.sanitizeNavBarCornerRadius
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerAlbumNavigationEffect
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerArtistNavigationEffect
 import com.theveloper.pixelplay.presentation.components.scoped.PlayerSheetPredictiveBackHandler
@@ -204,7 +205,7 @@ fun UnifiedPlayerSheetV2(
     val prewarmFullPlayer = rememberPrewarmFullPlayer(infrequentPlayerState.currentSong?.id)
 
     val playerConfig by playerViewModel.playerConfigSlice.collectAsStateWithLifecycle()
-    val navBarCornerRadius = playerConfig.navBarCornerRadius
+    val navBarCornerRadius = sanitizeNavBarCornerRadius(playerConfig.navBarCornerRadius)
     val navBarStyle = playerConfig.navBarStyle
     val carouselStyle = playerConfig.carouselStyle
     val fullPlayerLoadingTweaks = playerConfig.fullPlayerLoadingTweaks
@@ -626,16 +627,15 @@ fun UnifiedPlayerSheetV2(
                                 alpha = miniReadyAlpha
                                 transformOrigin = TransformOrigin(0.5f, 1f)
                             }
-                            .then(
-                                if (visualCardShadowElevation > 0.dp) {
-                                    Modifier.shadow(
-                                        elevation = visualCardShadowElevation,
-                                        shape = sheetInteractionState.playerShadowShape,
-                                        clip = false
-                                    )
-                                } else {
-                                    Modifier
-                                }
+                            // Always apply Modifier.shadow with the dynamic elevation
+                            // (0.dp renders nothing). Keeping the modifier chain
+                            // structurally stable avoids the costly relayout/redraw
+                            // restructure when the elevation crosses 0.dp during
+                            // expand/collapse or right after play/pause.
+                            .shadow(
+                                elevation = visualCardShadowElevation,
+                                shape = sheetInteractionState.playerShadowShape,
+                                clip = false
                             )
                             .background(
                                 color = playerAreaBackground,

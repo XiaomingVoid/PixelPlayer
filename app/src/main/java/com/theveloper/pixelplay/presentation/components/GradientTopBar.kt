@@ -1,8 +1,7 @@
 package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -41,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
 import com.theveloper.pixelplay.ui.theme.PixelPlayStatusBarStyle
-import kotlinx.collections.immutable.toImmutableList
 import androidx.compose.ui.res.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,33 +105,18 @@ fun HomeGradientTopBar(
     onMenuClick: () -> Unit = {},
     isScrolled: Boolean = false,
 ) {
-    val surfaceColor = MaterialTheme.colorScheme.surface
     val surfaceContainerHigh = MaterialTheme.colorScheme.surfaceContainerHighest
 
-    PixelPlayStatusBarStyle(color = surfaceColor)
-
-    val gradientColors = listOf(
-        surfaceColor,
-        Color.Transparent
-    ).toImmutableList()
-
-    val gradientBrush = remember(gradientColors) {
-        Brush.verticalGradient(colors = gradientColors)
-    }
+    PixelPlayStatusBarStyle(color = surfaceContainerHigh)
 
     val animatedAlpha by animateFloatAsState(
         targetValue = if (isScrolled) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
+        animationSpec = tween(durationMillis = 300),
         label = "topbar_alpha_transition"
     )
 
     TopAppBar(
-        modifier = Modifier
-            .background(brush = gradientBrush)
-            .background(surfaceContainerHigh.copy(alpha = animatedAlpha)),
+        modifier = Modifier.background(surfaceContainerHigh.copy(alpha = animatedAlpha)),
         title = { /* nada, usamos solo acciones */ },
         navigationIcon = {
             Row(

@@ -16,22 +16,30 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeExtendedFloatingActionButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -54,6 +62,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
@@ -61,6 +70,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -103,11 +113,14 @@ import com.theveloper.pixelplay.presentation.viewmodel.StatsViewModel
 import com.theveloper.pixelplay.ui.theme.ExpTitleTypography
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.compose.ui.res.stringResource
+
+private const val HomeLoadingPlaceholderMinDurationMillis = 1200L
 
 // Modern HomeScreen with collapsible top bar and staggered grid layout
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -147,6 +160,22 @@ fun HomeScreen(
             else -> homeMixPreviewSongs
         }
     }
+    var homePlaceholderRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
+    var hasHomeLoadingMinimumElapsed by rememberSaveable(homePlaceholderRefreshGeneration) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(homePlaceholderRefreshGeneration, yourMixSongs.isEmpty()) {
+        if (yourMixSongs.isEmpty()) {
+            hasHomeLoadingMinimumElapsed = false
+            delay(HomeLoadingPlaceholderMinDurationMillis)
+            hasHomeLoadingMinimumElapsed = true
+        } else {
+            hasHomeLoadingMinimumElapsed = true
+        }
+    }
+
+    val shouldShowYourMixLoadingPlaceholder = yourMixSongs.isEmpty() && !hasHomeLoadingMinimumElapsed
     val recentSongIds = remember(playbackHistory) {
         collectRecentlyPlayedSongIds(
             playbackHistory = playbackHistory,
@@ -196,7 +225,7 @@ fun HomeScreen(
     }
 
     ReportDrawnWhen {
-        yourMixSongs.isNotEmpty() || isBenchmarkMode
+        yourMixSongs.isNotEmpty() || hasHomeLoadingMinimumElapsed || isBenchmarkMode
     }
 
     val yourMixSong: String = "Today's Mix for you"
@@ -226,11 +255,47 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     LocalContext.current
 
-    val weeklyStats by statsViewModel.weeklyOverview.collectAsStateWithLifecycle()
+    val homeStatsOverview by statsViewModel.homeOverview.collectAsStateWithLifecycle()
 
-    val listState = rememberLazyListState()
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val density = LocalDensity.current
+    val scrollThresholdPx = remember(density) { with(density) { 180.dp.toPx() } }
     val isScrolledPastThreshold = remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 180 }
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > scrollThresholdPx }
+    }
+
+    // Persist the scroll position across navigation away/back. The Stats card and other
+    // conditional sections can shift indices while data re-emits when returning, which
+    // would otherwise leave the list scrolled to the wrong place or jump to the top.
+    var savedScrollIndex by rememberSaveable { mutableIntStateOf(0) }
+    var savedScrollOffset by rememberSaveable { mutableIntStateOf(0) }
+    var needsScrollRestore by rememberSaveable { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner, listState) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                savedScrollIndex = listState.firstVisibleItemIndex
+                savedScrollOffset = listState.firstVisibleItemScrollOffset
+                needsScrollRestore = true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(
+        needsScrollRestore,
+        yourMixSongs.isNotEmpty(),
+        dailyMixSongs.isNotEmpty(),
+        recentlyPlayedSongs.size,
+        homeStatsOverview
+    ) {
+        if (!needsScrollRestore) return@LaunchedEffect
+        val totalItems = listState.layoutInfo.totalItemsCount
+        if (totalItems == 0) return@LaunchedEffect
+        val targetIndex = savedScrollIndex.coerceIn(0, (totalItems - 1).coerceAtLeast(0))
+        listState.scrollToItem(targetIndex, savedScrollOffset)
+        needsScrollRestore = false
     }
 
     // Drawer state for sidebar
@@ -277,16 +342,32 @@ fun HomeScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Your Mix
-                item(
-                    key = "your_mix_header",
-                    contentType = "your_mix_header"
-                ) {
-                    YourMixHeader(
-                        song = yourMixSong,
-                        isShuffleEnabled = isShuffleEnabled,
-                        onPlayShuffled = {
-                            if (yourMixSongs.isNotEmpty()) {
+                if (yourMixSongs.isEmpty()) {
+                    item(
+                        key = "your_mix_placeholder",
+                        contentType = "your_mix_placeholder"
+                    ) {
+                        if (shouldShowYourMixLoadingPlaceholder) {
+                            YourMixLoadingPlaceholder()
+                        } else {
+                            YourMixEmptyPlaceholder(
+                                onRefresh = {
+                                    homePlaceholderRefreshGeneration++
+                                    settingsViewModel.refreshLibrary()
+                                    playerViewModel.forceUpdateDailyMix()
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    item(
+                        key = "your_mix_header",
+                        contentType = "your_mix_header"
+                    ) {
+                        YourMixHeader(
+                            song = yourMixSong,
+                            isShuffleEnabled = isShuffleEnabled,
+                            onPlayShuffled = {
                                 if (usesFallbackHomeMix) {
                                     playerViewModel.shuffleAllSongs(queueName = "Your Mix")
                                 } else {
@@ -297,8 +378,8 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
 
                 // Collage
@@ -396,14 +477,16 @@ fun HomeScreen(
                     }
                 }
 
-                item(
-                    key = "listening_stats_preview",
-                    contentType = "listening_stats_preview"
-                ) {
-                    StatsOverviewCard(
-                        summary = weeklyStats,
-                        onClick = { navController.navigateSafely(Screen.Stats.route) }
-                    )
+                if (homeStatsOverview != null) {
+                    item(
+                        key = "listening_stats_preview",
+                        contentType = "listening_stats_preview"
+                    ) {
+                        StatsOverviewCard(
+                            summary = homeStatsOverview,
+                            onClick = { navController.navigateSafely(Screen.Stats.route) }
+                        )
+                    }
                 }
             }
         }
@@ -496,6 +579,109 @@ fun HomeScreen(
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun YourMixLoadingPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(256.dp)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        LoadingIndicator(
+            modifier = Modifier.size(128.dp),
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+private fun YourMixEmptyPlaceholder(
+    onRefresh: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 256.dp)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(76.dp),
+                shape = AbsoluteSmoothCornerShape(
+                    cornerRadiusTL = 28.dp,
+                    smoothnessAsPercentTR = 60,
+                    cornerRadiusBR = 28.dp,
+                    smoothnessAsPercentTL = 60,
+                    cornerRadiusBL = 28.dp,
+                    smoothnessAsPercentBR = 60,
+                    cornerRadiusTR = 28.dp,
+                    smoothnessAsPercentBL = 60,
+                ),
+                color = colors.secondaryContainer,
+                contentColor = colors.onSecondaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.home_empty_placeholder_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.onSurface,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = stringResource(R.string.home_empty_placeholder_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            FilledTonalButton(
+                onClick = onRefresh,
+                shape = AbsoluteSmoothCornerShape(
+                    cornerRadiusTL = 22.dp,
+                    smoothnessAsPercentTR = 60,
+                    cornerRadiusBR = 22.dp,
+                    smoothnessAsPercentTL = 60,
+                    cornerRadiusBL = 22.dp,
+                    smoothnessAsPercentBR = 60,
+                    cornerRadiusTR = 22.dp,
+                    smoothnessAsPercentBL = 60,
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = stringResource(R.string.home_empty_placeholder_refresh))
+            }
+        }
     }
 }
 
