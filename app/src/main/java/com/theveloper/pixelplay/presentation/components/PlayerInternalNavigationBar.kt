@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
@@ -37,6 +38,7 @@ import kotlinx.coroutines.launch
 internal val NavBarContentHeight = 90.dp // Altura del contenido de la barra de navegación
 internal val NavBarCompactContentHeight = 64.dp
 internal val NavBarContentHeightFullWidth = NavBarContentHeight // Altura del contenido de la barra de navegación en modo completo
+private val MainScreenBottomGradientExtraHeight = MiniPlayerHeight + MiniPlayerBottomSpacer + 8.dp
 // Some OEM freeform/floating-window modes can report a bottom inset close to the whole window height.
 internal val MaxNavigationBarBottomInset = 96.dp
 
@@ -63,6 +65,9 @@ internal fun calculatePlayerSheetCollapsedTargetY(
 
 internal fun resolveNavBarContentHeight(compactMode: Boolean): Dp =
     if (compactMode) NavBarCompactContentHeight else NavBarContentHeight
+
+internal fun resolveMainScreenBottomGradientHeight(compactMode: Boolean): Dp =
+    resolveNavBarContentHeight(compactMode) + MainScreenBottomGradientExtraHeight
 
 internal fun resolveNavBarSurfaceHeight(
     navBarStyle: String,
@@ -131,27 +136,28 @@ private fun PlayerInternalNavigationItemsRow(
             } else {
                 item.iconResId
             }
-            val iconLambda: @Composable () -> Unit = remember(iconPainterResId, item.label) {
+            val localizedLabel = stringResource(id = item.labelResId)
+            val iconLambda: @Composable () -> Unit = remember(iconPainterResId, localizedLabel) {
                 {
                     Icon(
                         painter = painterResource(id = iconPainterResId),
-                        contentDescription = item.label
+                        contentDescription = localizedLabel
                     )
                 }
             }
-            val selectedIconLambda: @Composable () -> Unit = remember(iconPainterResId, item.label) {
+            val selectedIconLambda: @Composable () -> Unit = remember(iconPainterResId, localizedLabel) {
                 {
                     Icon(
                         painter = painterResource(id = iconPainterResId),
-                        contentDescription = item.label
+                        contentDescription = localizedLabel
                     )
                 }
             }
             val labelLambda: (@Composable () -> Unit)? = if (compactMode) {
                 null
             } else {
-                remember(item.label) {
-                    { Text(item.label) }
+                remember(localizedLabel) {
+                    { Text(localizedLabel) }
                 }
             }
             val onClickLambda: () -> Unit = remember(item.screen.route, navController, scope) {
@@ -205,7 +211,7 @@ private fun PlayerInternalNavigationItemsRow(
                 icon = iconLambda,
                 selectedIcon = selectedIconLambda,
                 label = labelLambda,
-                contentDescription = item.label,
+                contentDescription = localizedLabel,
                 alwaysShowLabel = true,
                 selectedIconColor = selectedColor,
                 unselectedIconColor = unselectedColor,

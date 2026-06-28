@@ -83,6 +83,9 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -130,7 +133,6 @@ private val CoreMaintainer = Contributor(
     avatarUrl = "https://avatars.githubusercontent.com/u/26845343?v=4",
     iconRes = R.drawable.round_developer_board_24,
     githubUrl = "https://github.com/theovilardo",
-    telegramUrl = "https://t.me/thevelopersupport",
 )
 
 private val PinnedCommunityMembers = listOf(
@@ -479,7 +481,7 @@ fun AboutScreen(
         }
 
         CollapsibleCommonTopBar(
-            title = stringResource(R.string.screen_about),
+            title = stringResource(R.string.about_screen_title),
             collapseFraction = collapseFraction,
             headerHeight = currentTopBarHeightDp,
             onBackClick = onNavigationIconClick,
@@ -497,6 +499,7 @@ private fun AboutHeroCard(
 ) {
     val heroShape = AbsoluteSmoothCornerShape(30.dp, 60)
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     Surface(
         modifier = modifier,
@@ -578,6 +581,82 @@ private fun AboutHeroCard(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 CommunitySignalsRow()
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SocialChip(
+                        label = stringResource(R.string.about_github_label),
+                        subtitle = stringResource(R.string.about_github_subtitle),
+                        iconRes = R.drawable.github,
+                        contentDescription = stringResource(R.string.about_cd_open_github_repo),
+                        onClick = { openUrl(context, "https://github.com/theovilardo/PixelPlayer") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    SocialChip(
+                        label = stringResource(R.string.about_telegram_label),
+                        subtitle = stringResource(R.string.about_telegram_subtitle),
+                        iconRes = R.drawable.telegram,
+                        contentDescription = stringResource(R.string.about_cd_join_telegram),
+                        onClick = { openUrl(context, "https://t.me/thevelopersupport") },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SocialChip(
+    label: String,
+    subtitle: String,
+    @DrawableRes iconRes: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .height(52.dp)
+            .clearAndSetSemantics {
+                this.contentDescription = contentDescription
+                this.role = Role.Button
+            },
+        shape = AbsoluteSmoothCornerShape(14.dp, 60),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -749,12 +828,12 @@ private fun ContributorCard(
             ) {
                 SocialIconButton(
                     painterRes = R.drawable.github,
-                    contentDescription = stringResource(R.string.cd_open_github_profile),
+                    contentDescription = stringResource(R.string.about_cd_open_github_profile),
                     url = contributor.githubUrl,
                 )
                 SocialIconButton(
                     painterRes = R.drawable.telegram,
-                    contentDescription = stringResource(R.string.cd_open_telegram),
+                    contentDescription = stringResource(R.string.about_cd_open_telegram),
                     url = contributor.telegramUrl,
                 )
             }
@@ -803,7 +882,7 @@ private fun ContributorAvatar(
             cachedBitmap != null -> {
                 Image(
                     bitmap = cachedBitmap!!,
-                    contentDescription = stringResource(R.string.cd_contributor_avatar, name),
+                    contentDescription = stringResource(R.string.about_cd_contributor_avatar, name),
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
@@ -814,7 +893,7 @@ private fun ContributorAvatar(
                         .data(avatarUrl)
                         .crossfade(true)
                         .build(),
-                    contentDescription = stringResource(R.string.cd_contributor_avatar, name),
+                    contentDescription = stringResource(R.string.about_cd_contributor_avatar, name),
                     modifier = Modifier.fillMaxSize(),
                     shape = CircleShape,
                     contentScale = ContentScale.Crop,
@@ -823,11 +902,7 @@ private fun ContributorAvatar(
                     targetSize = Size(96, 96),
                     onState = { state ->
                         if (state is AsyncImagePainter.State.Success) {
-                            val drawable = state.result.drawable
-                            val bitmap = drawable?.toBitmap()?.asImageBitmap()
-                            if (bitmap != null) {
-                                cachedBitmap = bitmap
-                            }
+                            cachedBitmap = state.result.drawable.toBitmap().asImageBitmap()
                         }
                     },
                 )
@@ -841,7 +916,7 @@ private fun ContributorAvatar(
                 ) {
                     Icon(
                         painter = painterResource(iconRes),
-                        contentDescription = stringResource(R.string.cd_contributor_icon, name),
+                        contentDescription = stringResource(R.string.about_cd_contributor_icon, name),
                         tint = iconTint,
                         modifier = Modifier.size(28.dp),
                     )
@@ -855,7 +930,7 @@ private fun ContributorAvatar(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = initial.toString(),
+                        text = initial,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = letterTint,
                     )

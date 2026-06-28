@@ -72,10 +72,11 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.paging.LoadState
@@ -84,10 +85,13 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import coil.size.Size
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.data.model.LibraryTabId
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.screens.TabAnimation
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
+import com.theveloper.pixelplay.ui.theme.LocalShowScrollbar
+import com.theveloper.pixelplay.ui.theme.ShapeCache
 import kotlinx.coroutines.flow.map
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 
@@ -230,7 +234,7 @@ fun SongPickerContent(
                     ) {
                         Icon(
                             Icons.Rounded.Check,
-                            contentDescription = stringResource(R.string.cd_confirm_add_songs),
+                            contentDescription = stringResource(R.string.song_picker_cd_confirm_add_songs),
                             modifier = Modifier.size(28.dp)
                         )
                     }
@@ -348,11 +352,36 @@ fun SongPickerSelectionPane(
             FilterChip(
                 selected = favoritesOnly,
                 onClick = { favoritesOnly = !favoritesOnly },
-                label = { Text(stringResource(R.string.song_picker_filter_favorites)) },
-                shape = CircleShape,
+                label = {
+                    Text(
+                        text = stringResource(R.string.song_picker_filter_favorites),
+                        fontFamily = GoogleSansRounded,
+                        fontWeight = if (favoritesOnly) FontWeight.Bold else FontWeight.Medium
+                    )
+                },
+                shape = if (favoritesOnly) ShapeCache.smooth12 else ShapeCache.smoothPill,
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = favoritesOnly,
+                    borderColor = Color.Transparent,
+                    selectedBorderColor = Color.Transparent,
+                    borderWidth = 0.dp,
+                    selectedBorderWidth = 0.dp
+                ),
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
                 leadingIcon = {
                     Icon(
-                        painter = painterResource(R.drawable.round_favorite_24),
+                        painter = painterResource(
+                            if (favoritesOnly) R.drawable.round_favorite_24
+                            else R.drawable.round_favorite_border_24
+                        ),
                         contentDescription = null,
                         modifier = Modifier.size(FilterChipDefaults.IconSize)
                     )
@@ -370,6 +399,7 @@ fun SongPickerSelectionPane(
                     isLoading = searchResults == null,
                     selectedSongIds = selectedSongIds,
                     albumShape = albumShape,
+                    searchQuery = searchQuery,
                     modifier = Modifier.weight(1f),
                     contentPadding = contentPadding
                 )
@@ -379,6 +409,8 @@ fun SongPickerSelectionPane(
                     pagedSongs = pagedFavoriteSongs,
                     selectedSongIds = selectedSongIds,
                     albumShape = albumShape,
+                    tabId = LibraryTabId.LIKED,
+                    storageFilter = storageFilter,
                     modifier = Modifier.weight(1f),
                     contentPadding = contentPadding
                 )
@@ -388,6 +420,8 @@ fun SongPickerSelectionPane(
                     pagedSongs = pagedSongs,
                     selectedSongIds = selectedSongIds,
                     albumShape = albumShape,
+                    tabId = LibraryTabId.SONGS,
+                    storageFilter = storageFilter,
                     modifier = Modifier.weight(1f),
                     contentPadding = contentPadding
                 )
@@ -434,11 +468,14 @@ private fun SongPickerSearchField(
     )
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 fun SongPickerPagingList(
     pagedSongs: LazyPagingItems<Song>,
     selectedSongIds: MutableMap<String, Boolean>,
     albumShape: androidx.compose.ui.graphics.Shape,
+    tabId: LibraryTabId,
+    storageFilter: StorageFilter,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(bottom = 100.dp, top = 20.dp)
 ) {
@@ -470,10 +507,18 @@ fun SongPickerPagingList(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Button(onClick = { pagedSongs.retry() }) {
-                        Text(stringResource(R.string.library_retry))
+                        Text(stringResource(R.string.library_action_retry), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
+        }
+
+        pagedSongs.itemCount == 0 && pagedSongs.loadState.refresh is LoadState.NotLoading && pagedSongs.loadState.append.endOfPaginationReached -> {
+            SongPickerEmptyState(
+                tabId = tabId,
+                storageFilter = storageFilter,
+                modifier = modifier.padding(bottom = contentPadding.calculateBottomPadding())
+            )
         }
 
         else -> {
@@ -489,7 +534,7 @@ fun SongPickerPagingList(
                         bottom = contentPadding.calculateBottomPadding(),
                         top = contentPadding.calculateTopPadding(),
                         start = contentPadding.calculateLeftPadding(LayoutDirection.Ltr),
-                        end = if (listState.canScrollForward || listState.canScrollBackward) 12.dp else 0.dp
+                        end = if (LocalShowScrollbar.current && (listState.canScrollForward || listState.canScrollBackward)) 12.dp else 0.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -532,7 +577,7 @@ fun SongPickerPagingList(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Button(onClick = { pagedSongs.retry() }) {
-                                    Text(stringResource(R.string.song_picker_load_more))
+                                    Text(stringResource(R.string.song_picker_load_more), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
@@ -664,11 +709,81 @@ private fun SongPickerPlaceholderRow() {
 }
 
 @Composable
+fun SongPickerEmptyState(
+    tabId: LibraryTabId,
+    storageFilter: StorageFilter,
+    modifier: Modifier = Modifier
+) {
+    val spec = when (tabId) {
+        LibraryTabId.LIKED -> when (storageFilter) {
+            StorageFilter.ALL -> Triple(R.drawable.round_favorite_24, R.string.library_empty_liked_all_title, R.string.library_empty_liked_all_subtitle)
+            StorageFilter.OFFLINE -> Triple(R.drawable.round_favorite_24, R.string.library_empty_liked_offline_title, R.string.library_empty_liked_offline_subtitle)
+            StorageFilter.ONLINE -> Triple(R.drawable.round_favorite_24, R.string.library_empty_liked_online_title, R.string.library_empty_liked_online_subtitle)
+        }
+        else -> when (storageFilter) {
+            StorageFilter.ALL -> Triple(R.drawable.rounded_music_off_24, R.string.library_empty_songs_all_title, R.string.library_empty_songs_all_subtitle)
+            StorageFilter.OFFLINE -> Triple(R.drawable.rounded_music_off_24, R.string.library_empty_songs_offline_title, R.string.library_empty_songs_offline_subtitle)
+            StorageFilter.ONLINE -> Triple(R.drawable.rounded_music_off_24, R.string.library_empty_songs_online_title, R.string.library_empty_songs_online_subtitle)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                tonalElevation = 2.dp
+            ) {
+                Box(
+                    modifier = Modifier.size(56.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = spec.first),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = stringResource(spec.second),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontFamily = GoogleSansRounded,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = stringResource(spec.third),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun SongPickerList(
     filteredSongs: List<Song>,
     isLoading: Boolean,
     selectedSongIds: MutableMap<String, Boolean>,
     albumShape: androidx.compose.ui.graphics.Shape,
+    searchQuery: String = "",
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(bottom = 100.dp, top = 20.dp)
 ) {
@@ -679,6 +794,53 @@ fun SongPickerList(
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator()
+        }
+    } else if (filteredSongs.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp)
+                .padding(bottom = contentPadding.calculateBottomPadding()),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                    tonalElevation = 2.dp
+                ) {
+                    Box(
+                        modifier = Modifier.size(56.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.rounded_search_24),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = if (searchQuery.isNotBlank())
+                            stringResource(R.string.search_no_results_for_query, searchQuery)
+                        else
+                            stringResource(R.string.search_no_results_found),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontFamily = GoogleSansRounded,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
     } else {
         val listState = rememberLazyListState()
@@ -693,7 +855,7 @@ fun SongPickerList(
                     bottom = contentPadding.calculateBottomPadding(),
                     top = contentPadding.calculateTopPadding(),
                     start = contentPadding.calculateLeftPadding(LayoutDirection.Ltr),
-                    end = if (listState.canScrollForward || listState.canScrollBackward) 12.dp else 0.dp
+                    end = if (LocalShowScrollbar.current && (listState.canScrollForward || listState.canScrollBackward)) 12.dp else 0.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {

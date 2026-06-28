@@ -116,6 +116,10 @@ import com.theveloper.pixelplay.presentation.components.snapping.rememberLazyLis
 import com.theveloper.pixelplay.presentation.components.snapping.rememberSnapperFlingBehavior
 import com.theveloper.pixelplay.utils.LyricsUtils
 import com.theveloper.pixelplay.presentation.components.subcomps.LyricsMoreBottomSheet
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.compose.ui.platform.LocalView
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -241,6 +245,7 @@ fun LyricsSheet(
     isImmersiveTemporarilyDisabled: Boolean,
     onSetImmersiveTemporarilyDisabled: (Boolean) -> Unit,
     onSaveLyricsToFile: (Song, Lyrics, Boolean) -> Unit,
+    onTranslateViaAi: () -> Unit,
     // BottomToggleRow Params
     isShuffleEnabled: Boolean,
     repeatMode: Int,
@@ -343,10 +348,76 @@ fun LyricsSheet(
     }
     val animatedLyricsBlurEnabled by animatedLyricsBlurEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
 
+    val disableBlurAllOverFlow = remember(context) {
+        context.dataStore.data.map { it[booleanPreferencesKey("disable_blur_all_over")] ?: false }
+    }
+    val disableBlurAllOver by disableBlurAllOverFlow.collectAsStateWithLifecycle(initialValue = false)
+
     val animatedLyricsBlurStrengthFlow = remember(context) {
         context.dataStore.data.map { it[androidx.datastore.preferences.core.floatPreferencesKey("animated_lyrics_blur_strength")] ?: 2.5f }
     }
     val animatedLyricsBlurStrength by animatedLyricsBlurStrengthFlow.collectAsStateWithLifecycle(initialValue = 2.5f)
+
+    // Read keep-screen-on preference from DataStore
+    val keepScreenOnFlow = remember(context) {
+        context.dataStore.data.map { it[booleanPreferencesKey("keep_screen_on_lyrics")] ?: false }
+    }
+    var keepScreenOn by remember { mutableStateOf(false) }
+    // Sync DataStore → local state
+    LaunchedEffect(Unit) {
+        keepScreenOnFlow.collect { keepScreenOn = it }
+    }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Apply FLAG_KEEP_SCREEN_ON via the window when enabled
+    val view = LocalView.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    DisposableEffect(keepScreenOn, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP && keepScreenOn) {
+                keepScreenOn = false
+                coroutineScope.launch {
+                    context.dataStore.edit { prefs ->
+                        prefs[booleanPreferencesKey("keep_screen_on_lyrics")] = false
+                    }
+                }
+            }
+        }
+
+        if (keepScreenOn) {
+            view.keepScreenOn = true
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            view.keepScreenOn = false
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    DisposableEffect(keepScreenOn, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP && keepScreenOn) {
+                keepScreenOn = false
+                coroutineScope.launch {
+                    context.dataStore.edit { prefs ->
+                        prefs[booleanPreferencesKey("keep_screen_on_lyrics")] = false
+                    }
+                }
+            }
+        }
+        
+        if (keepScreenOn) {
+            view.keepScreenOn = true
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            view.keepScreenOn = false
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val resolvedAutoscrollSpec = autoscrollAnimationSpec ?: if (useAnimatedLyrics) {
         spring(
@@ -395,7 +466,25 @@ fun LyricsSheet(
     val swipeThresholdPx = with(LocalDensity.current) { swipeThreshold.toPx() }
     val overlayTranslation = remember { Animatable(0f) }
     val swipeProgress = remember { Animatable(0f) }
-    val coroutineScope = rememberCoroutineScope()
+
+    // Reset keep-screen-on when the physical screen goes off (power button / OEM sleep gesture).
+    // ACTION_SCREEN_OFF is a guaranteed platform broadcast; no OEM can suppress it.
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: android.content.Context, intent: Intent) {
+                if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                    keepScreenOn = false
+                    coroutineScope.launch {
+                        context.dataStore.edit { prefs ->
+                            prefs[booleanPreferencesKey("keep_screen_on_lyrics")] = false
+                        }
+                    }
+                }
+            }
+        }
+        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        onDispose { context.unregisterReceiver(receiver) }
+    }
 
     // Auto-hide controls logic
     LaunchedEffect(immersiveLyricsEnabled, lastInteractionTime, showSyncedLyrics, isImmersiveTemporarilyDisabled) {
@@ -467,10 +556,10 @@ fun LyricsSheet(
         
         AlertDialog(
             onDismissRequest = { showSaveLyricsDialog = false },
-            title = { Text(stringResource(R.string.save_lyrics_dialog_title)) },
+            title = { Text(stringResource(R.string.lyrics_save_dialog_title)) },
             text = {
                 Column {
-                    Text(stringResource(R.string.save_lyrics_dialog_message))
+                    Text(stringResource(R.string.lyrics_save_dialog_message))
                     Spacer(modifier = Modifier.height(16.dp))
                     if (hasSynced) {
                         FilledTonalButton(
@@ -484,7 +573,7 @@ fun LyricsSheet(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(stringResource(R.string.save_synced_lyrics))
+                            Text(stringResource(R.string.lyrics_save_synced))
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -500,7 +589,7 @@ fun LyricsSheet(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(stringResource(R.string.save_plain_lyrics))
+                            Text(stringResource(R.string.lyrics_save_plain))
                         }
                     }
                 }
@@ -508,7 +597,7 @@ fun LyricsSheet(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showSaveLyricsDialog = false }) {
-                    Text(stringResource(R.string.cancel))
+                    Text(stringResource(R.string.common_cancel), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         )
@@ -523,10 +612,15 @@ fun LyricsSheet(
             // Read backProgressProvider inside graphicsLayer (draw-phase) — no layout
             // pass is triggered per gesture frame, same pattern as SheetVisualState.
             // 0f = fully visible, 1f = fully dismissed.
-            // Effect: slides down 8 % of height (no fade).
+            // Effect: scale down to 92 % + slide down 8 % of height + fade to 72 % alpha.
+            // Matches Android predictive back spec for full-screen destinations and
+            // mirrors the scale+alpha treatment used across the rest of the app.
             .graphicsLayer {
                 val p = backProgressProvider.value
-                translationY = androidx.compose.ui.util.lerp(0f, size.height * 0.08f, p)
+                val scale = lerp(1f, 0.92f, p)
+                scaleX = scale
+                scaleY = scale
+                translationY = lerp(0f, size.height * 0.08f, p)
             }
             .clip(RoundedCornerShape(32.dp))
             .pointerInput(Unit) {
@@ -658,7 +752,7 @@ fun LyricsSheet(
                                     if (isLoadingLyrics) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text(
-                                                text = context.resources.getString(R.string.loading_lyrics),
+                                                text = stringResource(R.string.lyrics_loading),
                                                 style = MaterialTheme.typography.titleMedium
                                             )
                                             Spacer(modifier = Modifier.height(8.dp))
@@ -701,7 +795,7 @@ fun LyricsSheet(
                                 highlightOffsetDp = highlightOffsetDp,
                                 autoscrollAnimationSpec = resolvedAutoscrollSpec,
                                 useAnimatedLyrics = useAnimatedLyrics,
-                                animatedLyricsBlurEnabled = animatedLyricsBlurEnabled,
+                                animatedLyricsBlurEnabled = animatedLyricsBlurEnabled && !disableBlurAllOver,
                                 animatedLyricsBlurStrength = animatedLyricsBlurStrength,
                                 immersiveMode = immersiveMode,
                                 lyricsAlignment = lyricsAlignment,
@@ -711,8 +805,8 @@ fun LyricsSheet(
                                     if (lyrics?.areFromRemote == true) {
                                         item(key = "provider_text") {
                                             ProviderText(
-                                                providerText = context.resources.getString(R.string.lyrics_provided_by),
-                                                uri = context.resources.getString(R.string.lrclib_uri),
+                                                providerText = stringResource(R.string.lyrics_provided_by),
+                                                uri = stringResource(R.string.lyrics_lrclib_uri),
                                                 textAlign = TextAlign.Center,
                                                 accentColor = lyricHighlightColor,
                                                 modifier = Modifier
@@ -866,7 +960,7 @@ fun LyricsSheet(
                                 Icon(
                                     modifier = Modifier.size(32.dp),
                                     imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = stringResource(R.string.cd_play),
+                                    contentDescription = stringResource(R.string.common_play),
                                     tint = onPlayPauseColor
                                 )
                             }
@@ -929,6 +1023,7 @@ fun LyricsSheet(
                         wasResetTriggered = true
                         resetLyricsForCurrentSong()
                     },
+                    onTranslateViaAi = onTranslateViaAi,
                     onToggleSyncControls = {
                         resetImmersiveTimer()
                         showSyncControls = !showSyncControls
@@ -937,6 +1032,15 @@ fun LyricsSheet(
                     onSetImmersiveTemporarilyDisabled = {
                         resetImmersiveTimer()
                         onSetImmersiveTemporarilyDisabled(it)
+                    },
+                    keepScreenOn = keepScreenOn,
+                    onKeepScreenOnChange = { enabled ->
+                        keepScreenOn = enabled
+                        coroutineScope.launch {
+                            context.dataStore.edit { prefs ->
+                                prefs[booleanPreferencesKey("keep_screen_on_lyrics")] = enabled
+                            }
+                        }
                     },
                     lyricsAlignment = lyricsAlignment,
                     onLyricsAlignmentChange = { newAlignment ->
@@ -1562,6 +1666,11 @@ fun LyricWordSpan(
     unhighlightedColor: Color,
     modifier: Modifier = Modifier
 ) {
+    val wordAnimSpec = if (useAnimatedLyrics) spring<Float>(
+        stiffness = Spring.StiffnessVeryLow,
+        dampingRatio = Spring.DampingRatioMediumBouncy
+    ) else tween(durationMillis = 200)
+
     val color by animateColorAsState(
         targetValue = if (isHighlighted) highlightedColor else unhighlightedColor,
         animationSpec = if (useAnimatedLyrics) spring(
@@ -1570,6 +1679,23 @@ fun LyricWordSpan(
         ) else tween(durationMillis = 200),
         label = "wordColor"
     )
+
+    // Scale: pop up to 1.10 on highlight, settle back to 1f. Only active when
+    // animated lyrics is on — layout is untouched because it's applied in graphicsLayer.
+    val scale by animateFloatAsState(
+        targetValue = if (useAnimatedLyrics && isHighlighted) 1.10f else 1f,
+        animationSpec = wordAnimSpec,
+        label = "wordScale"
+    )
+
+    // Alpha: unhighlighted words dim slightly so the active word pops without
+    // needing a hard color contrast. Only active when animated lyrics is on.
+    val alpha by animateFloatAsState(
+        targetValue = if (useAnimatedLyrics && !isHighlighted) 0.55f else 1f,
+        animationSpec = wordAnimSpec,
+        label = "wordAlpha"
+    )
+
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
@@ -1586,6 +1712,12 @@ fun LyricWordSpan(
             style = style,
             color = color,
             fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
+            // Scale and alpha applied at draw phase — zero layout impact per frame.
+            modifier = Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.alpha = alpha
+            }
         )
     }
 }
@@ -1627,9 +1759,17 @@ fun PlainLyricsLine(
             if (isFirstRomanization) sanitizeLyricLineText(firstExtra) else ""
         } else ""
     }
+    val textAlign = when (lyricsAlignment) {
+        "center" -> TextAlign.Center
+        "right" -> TextAlign.Right
+        else -> TextAlign.Left
+    }
 
-    val textAlign = when (lyricsAlignment) { "center" -> TextAlign.Center; "right" -> TextAlign.Right; else -> TextAlign.Left }
-    val horizontalAlignment = when (lyricsAlignment) { "center" -> Alignment.CenterHorizontally; "right" -> Alignment.End; else -> Alignment.Start }
+    val horizontalAlignment = when (lyricsAlignment) {
+        "center" -> Alignment.CenterHorizontally
+        "right" -> Alignment.End
+        else -> Alignment.Start
+    }
 
     val translationStyle = remember(style) {
         style.copy(

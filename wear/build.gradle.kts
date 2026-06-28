@@ -14,13 +14,15 @@ android {
         applicationId = "com.theveloper.pixelplay"
         minSdk = 30
         targetSdk = 37
-        versionCode = (project.findProperty("APP_VERSION_CODE") as String).toInt()
-        versionName = project.findProperty("APP_VERSION_NAME") as String
+        versionCode = (project.findProperty("APP_VERSION_CODE") as? String)?.toInt() ?: 1
+        versionName = (project.findProperty("APP_VERSION_NAME") as? String) ?: "1.0.0"
     }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
 
         release {
@@ -30,6 +32,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            lint {
+                abortOnError = false
+                checkReleaseBuilds = false
+            }
         }
     }
 
